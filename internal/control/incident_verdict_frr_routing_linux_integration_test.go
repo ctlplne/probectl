@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os/exec"
 	"slices"
 	"testing"
 	"time"
@@ -39,6 +40,18 @@ func startVerdictInternetFRR(t *testing.T, healthy bool) verdictInternetLab {
 	path := startVerdictFRRPath(t, true)
 	network, external := path.network, path.external
 	enableVerdictExternalForwarding(t, network, external)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for _, namespace := range []string{external, network.source, network.other} {
+			routes, routeErr := exec.CommandContext(ctx, "ip", "-n", namespace, "-4", "route", "show").CombinedOutput()
+			counters, counterErr := exec.CommandContext(ctx, "ip", "netns", "exec", namespace, "cat", "/proc/net/snmp").CombinedOutput()
+			t.Logf("namespace %s IPv4 routes (%v): %s\nprotocol counters (%v): %s", namespace, routeErr, routes, counterErr, counters)
+		}
+	})
 	vantages := [2]string{network.source, network.other}
 	return verdictInternetLab{
 		verdictHandoffLab: verdictHandoffLab{
@@ -63,10 +76,12 @@ func startVerdictInternetFRR(t *testing.T, healthy bool) verdictInternetLab {
 			conn := openVerdictFRRBMP(t, network.router)
 			peer, route := captureVerdictExternalRoute(t, conn, f, tenant, listener)
 			if !healthy {
-				// Withdraw only the test destinations on the far router.
-				// Its advertised responder prefix and both sessions stay up.
+				// Withdraw the test destinations and finish their FIB lookup
+				// with no route. The advertised responder prefix stays up.
 				for _, definition := range definitions {
-					dependencyLabCommand(t, "ip", "-n", external, "addr", "del", definition.Target+"/32", "dev", "lo")
+					prefix := definition.Target + "/32"
+					dependencyLabCommand(t, "ip", "-n", external, "addr", "del", prefix, "dev", "lo")
+					dependencyLabCommand(t, "ip", "-n", external, "route", "replace", "throw", prefix)
 				}
 			}
 			return peer, route
@@ -105,9 +120,12 @@ func (lab verdictFRRPath) awaitExternalRoute(t *testing.T) {
 func enableVerdictExternalForwarding(t *testing.T, network dependencyPhysicalNetwork, external string) {
 	t.Helper()
 	dependencyLabCommand(t, "ip", "netns", "exec", network.child, "sysctl", "-qw", "net.ipv4.ip_forward=1")
-	dependencyLabCommand(t, "ip", "netns", "exec", external, "sysctl", "-qw", "net.ipv4.ip_forward=1", "net.ipv4.icmp_ratelimit=0")
+	dependencyLabCommand(t, "ip", "netns", "exec", external, "sysctl", "-qw", "net.ipv4.ip_forward=1", "net.ipv4.icmp_ratemask=0")
+	// The source namespace has no default route. Give both probes a reverse
+	// path to the original ICMP sender, which is separate from their targets.
+	dependencyLabCommand(t, "ip", "-n", network.source, "route", "add", verdictFRRExternalIP+"/32", "via", "10.250.0.1")
 	for _, prefix := range []string{"10.250.0.0/30", "10.250.2.0/30"} {
-		dependencyLabCommand(t, "ip", "-n", external, "route", "add", prefix, "via", verdictFRRExternalPeerIP)
+		dependencyLabCommand(t, "ip", "-n", external, "route", "add", prefix, "via", verdictFRRExternalPeerIP, "src", verdictFRRExternalIP)
 	}
 }
 

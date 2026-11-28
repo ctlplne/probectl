@@ -66,13 +66,13 @@ func startVerdictCarrierFRR(t *testing.T, healthy bool) verdictCarrierLab {
 			if healthy {
 				return up
 			}
-			// Drop IPv4 at the provider's ingress. Its hold timer can expire
-			// and return a real notification while link and ARP stay up.
-			dependencyLabCommand(t, "ip", "netns", "exec", network.child, "tc", "qdisc", "add", "dev", "to-router", "clsact")
-			dependencyLabCommand(t, "ip", "netns", "exec", network.child, "tc", "filter", "add", "dev", "to-router", "ingress", "protocol", "ip", "matchall", "action", "drop")
+			dropVerdictCarrierTraffic(t, network.child)
 			down := readVerdictFRRPeer(t, socket, "down")
-			if down.DownReason == nil || down.NotificationCode == nil || down.NotificationSubcode == nil {
-				t.Fatal("stock FRR Peer Down omitted its original notification")
+			if down.DownReason == nil {
+				t.Fatal("stock FRR Peer Down omitted its reason")
+			}
+			if down.NotificationCode == nil || down.NotificationSubcode == nil {
+				t.Fatalf("stock FRR Peer Down reason %d omitted its original notification", *down.DownReason)
 			}
 			if *down.DownReason != 3 || *down.NotificationCode != 4 || *down.NotificationSubcode != 0 {
 				t.Fatalf("stock FRR reported reason %d and notification %d/%d for the planted hold timer expiry",
@@ -81,6 +81,22 @@ func startVerdictCarrierFRR(t *testing.T, healthy bool) verdictCarrierLab {
 			return down
 		},
 	}
+}
+
+func dropVerdictCarrierTraffic(t *testing.T, provider string) {
+	t.Helper()
+	dependencyLabCommand(t, "ip", "netns", "exec", provider, "tc", "qdisc", "add", "dev", "to-router", "clsact")
+	// Drop probes and local BGP messages while allowing bare TCP ACKs. The
+	// provider can keep sending keepalives until its own hold timer expires
+	// and the monitored router receives the provider's original NOTIFICATION.
+	filter := [...]string{"netns", "exec", provider, "tc", "filter", "add", "dev", "to-router", "ingress", "protocol", "ip"}
+	dependencyLabCommand(t, "ip", append(filter[:], "pref", "10", "flower", "ip_proto", "icmp", "action", "drop")...)
+	// Bytes 2-3 of the IPv4 header give the packet's total length.
+	dependencyLabCommand(t, "ip", append(filter[:], "pref", "20", "u32",
+		"match", "ip", "protocol", "6", "0xff", "match", "ip", "src", verdictFRRLocalIP+"/32", "match", "ip", "dst", verdictFRRCarrierIP+"/32",
+		"match", "u16", "0x0028", "0xffff", "at", "2", "action", "pass")...)
+	dependencyLabCommand(t, "ip", append(filter[:], "pref", "30", "flower", "ip_proto", "tcp",
+		"src_ip", verdictFRRLocalIP, "dst_ip", verdictFRRCarrierIP, "action", "drop")...)
 }
 
 func verdictFRRLinkStates(t *testing.T, network dependencyPhysicalNetwork) [2]entity.SNMPInterfaceState {
@@ -117,6 +133,12 @@ func startVerdictFRRPath(t *testing.T, externalOrigin bool) verdictFRRPath {
 	}
 	localContainer, carrierContainer := startVerdictFRR(t, local), startVerdictFRR(t, carrier)
 	network := newDependencyPhysicalNetworkWithRouters(t, localContainer.pid, carrierContainer.pid)
+	if !externalOrigin {
+		// Before the BGP handshake, ensure an empty IPv4 TCP ACK is 40 bytes.
+		for _, ns := range []string{network.router, network.child} {
+			dependencyLabCommand(t, "ip", "netns", "exec", ns, "sysctl", "-qw", "net.ipv4.tcp_timestamps=0")
+		}
+	}
 	dependencyLabCommand(t, "ip", "-n", network.router, "addr", "add", verdictFRRLocalIP+"/24", "dev", "to-child")
 	dependencyLabCommand(t, "ip", "-n", network.child, "addr", "add", verdictFRRCarrierIP+"/24", "dev", "to-router")
 	enableDependencySecondVantage(t, network)
