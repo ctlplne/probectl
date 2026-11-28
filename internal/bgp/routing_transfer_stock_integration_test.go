@@ -68,9 +68,9 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		st.SignIn(t, first.tenantID, reviewerEmail, "FX-2 Router"),
 		st.SignIn(t, second.tenantID, reviewerEmail, "FX-2 Router Blue"),
 	}
+	defer func() { artifacts.exporterFailure(t, lanes) }()
 	prepareTransferStockCollectors(t, lab, st, links, community, exporterImage, &lanes)
 	artifacts.startPCAP(t, lab, lanes)
-	defer artifacts.exporterLogs(t, lanes)
 	warmTransferStockExporters(t, lab, st, links[0], lanes)
 	artifacts.bindings(t, st, lanes)
 	installTransferStockWorkload(t, lab)
@@ -89,25 +89,18 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		})
 	}
 	started := time.Now().UTC()
-	waitTransferStock(t, time.Minute, func() bool {
-		now := time.Now().UTC()
-		for i := range lanes {
-			lanes[i].before = readTransferStockPoll(t, &lanes[i], links, started, now, false)
-		}
-		return !lanes[0].before.started.IsZero() && !lanes[1].before.started.IsZero()
-	})
+	for i, poll := range awaitTransferStockPolls(t, lanes, links, started, false, "pre-workload") {
+		lanes[i].before = poll
+	}
 	comparisons, comparisonEnd := collectTransferStockComparisons(t, probes)
 	sendTransferStockPayload(t, lab, links, artifacts)
 	if wait := time.Until(comparisonEnd); wait > 0 {
 		time.Sleep(wait)
 	}
 	finished := time.Now().UTC()
-	waitTransferStock(t, time.Minute, func() bool {
-		for i := range lanes {
-			lanes[i].after = readTransferStockPoll(t, &lanes[i], links, finished, time.Now(), true)
-		}
-		return !lanes[0].after.started.IsZero() && !lanes[1].after.started.IsZero()
-	})
+	for i, poll := range awaitTransferStockPolls(t, lanes, links, finished, true, "post-workload") {
+		lanes[i].after = poll
+	}
 	artifacts.counterBrackets(t, lanes)
 
 	// The estimate reads adjacent counter samples when bracketing the window.
@@ -187,7 +180,7 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 			})
 		}
 	}
-	artifacts.flowRows(t, st, lanes, links[0].index)
+	artifacts.flowRows(t, st, lanes, links[0].index, started)
 	for i, lane := range lanes {
 		if !bracketed[i] {
 			t.Logf("lane %d request controls require its independently bracketed agreements", i)
@@ -204,7 +197,7 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		}
 		if comparisons[i].Source.TestId != "" && comparisons[1-i].Candidate.TestId != "" {
 			foreignProbe := measured[i]
-			foreignProbe.ProbeComparison.Candidate = measured[1-i].ProbeComparison.Candidate
+			foreignProbe.ProbeComparison.Candidate = comparisons[1-i].Candidate
 			if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreignProbe); code != http.StatusNotFound {
 				t.Errorf("lane %d accepted the sibling's measured probe: HTTP %d", i, code)
 			}

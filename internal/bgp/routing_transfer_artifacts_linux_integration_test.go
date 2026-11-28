@@ -69,6 +69,9 @@ func (a transferArtifacts) exporterState(t *testing.T, lanes [2]transferStockLan
 		return
 	}
 	for i, lane := range lanes {
+		if lane.exporter == "" {
+			continue
+		}
 		for _, operation := range []string{"statistics", "dump-flows"} {
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			out, err := exec.CommandContext(ctx, "docker", "exec", lane.exporter,
@@ -82,19 +85,25 @@ func (a transferArtifacts) exporterState(t *testing.T, lanes [2]transferStockLan
 	}
 }
 
-func (a transferArtifacts) exporterLogs(t *testing.T, lanes [2]transferStockLane) {
+func (a transferArtifacts) exporterFailure(t *testing.T, lanes [2]transferStockLane) {
 	t.Helper()
 	if a.dir == "" || !t.Failed() {
 		return
 	}
+	a.exporterState(t, lanes, "failure")
 	for i, lane := range lanes {
+		name := fmt.Sprintf("exporter-%d.log", i)
+		if lane.exporter == "" {
+			a.write(t, name, []byte("No exporter was registered before the test failed.\n"))
+			continue
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		out, err := exec.CommandContext(ctx, "docker", "logs", "--tail", "250", lane.exporter).CombinedOutput()
 		cancel()
 		if err != nil {
 			out = fmt.Appendf(out, "\ndocker logs: %v\n", err)
 		}
-		a.write(t, fmt.Sprintf("exporter-%d.log", i), out)
+		a.write(t, name, out)
 	}
 }
 
@@ -126,13 +135,13 @@ func (a transferArtifacts) bindings(t *testing.T, st *shipped.Stack, lanes [2]tr
 	}
 }
 
-func (a transferArtifacts) flowRows(t *testing.T, st *shipped.Stack, lanes [2]transferStockLane, ifIndex uint32) {
+func (a transferArtifacts) flowRows(t *testing.T, st *shipped.Stack, lanes [2]transferStockLane, ifIndex uint32, started time.Time) {
 	t.Helper()
 	if a.dir == "" {
 		return
 	}
 	for i, lane := range lanes {
-		readTransferStockFlowCaptures(t, st, lane, ifIndex, a, i)
+		readTransferStockFlowCaptures(t, st, lane, ifIndex, started, a, i)
 	}
 }
 

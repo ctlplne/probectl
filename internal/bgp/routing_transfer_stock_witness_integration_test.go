@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,14 +39,36 @@ type transferStockPoll struct {
 
 var transferStockSQLIdentity = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
-func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleRouterLink,
-	from, to time.Time, earliest bool) transferStockPoll {
+func awaitTransferStockPolls(t *testing.T, lanes [2]transferStockLane, links [2]roleRouterLink, from time.Time, earliest bool, phase string) [2]transferStockPoll {
 	t.Helper()
+	var polls [2]transferStockPoll
+	var readErrors [2]error
+	waitTransferStock(t, time.Minute, func() bool {
+		now := time.Now().UTC()
+		ready := true
+		for i, lane := range lanes {
+			if readErrors[i] == nil {
+				polls[i], readErrors[i] = readTransferStockPoll(lane, links, from, now, earliest)
+			}
+			ready = ready && (readErrors[i] != nil || !polls[i].started.IsZero())
+		}
+		return ready
+	})
+	for i, err := range readErrors {
+		if err != nil {
+			t.Errorf("lane %d %s counter poll: %v", i, phase, err)
+		}
+	}
+	return polls
+}
+
+func readTransferStockPoll(lane transferStockLane, links [2]roleRouterLink,
+	from, to time.Time, earliest bool) (transferStockPoll, error) {
 	// Fixture identifiers come from registration. Fail closed if their
 	// representation cannot be used as an unambiguous SQL literal.
 	for _, value := range []string{lane.reg.tenantID, lane.reg.contextID, lane.reg.deviceID, lane.counters} {
 		if !transferStockSQLIdentity.MatchString(value) {
-			t.Fatal("counter fixture identity is not canonical")
+			return transferStockPoll{}, errors.New("counter fixture identity is not canonical")
 		}
 	}
 	order := "DESC"
@@ -68,7 +91,7 @@ func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleR
 
 	body, err := shipped.CHQuery(shipped.CHURL(), statement)
 	if err != nil {
-		t.Fatalf("read the isolated fixture's original counter history: %v", err)
+		return transferStockPoll{}, fmt.Errorf("read original counter history: %w", err)
 	}
 	type combined struct {
 		poll transferStockPoll
@@ -87,20 +110,20 @@ func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleR
 			Counter   string `json:"counter_text"`
 		}
 		if err := json.Unmarshal([]byte(line), &row); err != nil {
-			t.Fatalf("decode exact counter row: %v", err)
+			return transferStockPoll{}, fmt.Errorf("decode exact counter row: %w", err)
 		}
 		started, e1 := strconv.ParseInt(row.Started, 10, 64)
 		completed, e2 := strconv.ParseInt(row.Completed, 10, 64)
 		idx, e3 := strconv.ParseUint(row.Interface, 10, 32)
 		value, e4 := strconv.ParseUint(row.Counter, 10, 64)
 		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || completed < started || len(row.Capture) != 64 {
-			t.Fatal("invalid exact counter value or clock in owned fixture")
+			return transferStockPoll{}, errors.New("invalid exact counter value or clock in owned fixture")
 		}
 		member := 0
 		if idx == uint64(links[1].index) {
 			member = 1
 		} else if idx != uint64(links[0].index) {
-			t.Fatal("counter read included a different interface")
+			return transferStockPoll{}, errors.New("counter read included a different interface")
 		}
 		key := polls[row.Capture]
 		if key == nil {
@@ -109,32 +132,41 @@ func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleR
 			polls[row.Capture] = key
 		}
 		if key.seen[member] || key.poll.started.UnixNano() != started || key.poll.completed.UnixNano() != completed {
-			t.Fatal("an exact capture contained competing counter samples")
+			return transferStockPoll{}, errors.New("an exact capture contained competing counter samples")
 		}
 		key.seen[member], key.poll.octets[member] = true, value
 		if key.seen[0] && key.seen[1] {
-			return key.poll
+			return key.poll, nil
 		}
 	}
-	return transferStockPoll{}
+	return transferStockPoll{}, nil
 }
 
 // Report the owned fixture's clocks and terminal capture state only when the
 // API refuses its evidence. Receipt counts alone include unavailable captures.
 func logTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32) {
 	t.Helper()
-	readTransferStockFlowCaptures(t, st, lane, ifIndex, transferArtifacts{}, 0)
+	readTransferStockFlowCaptures(t, st, lane, ifIndex, lane.before.started, transferArtifacts{}, 0)
 }
 
-func readTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32, artifacts transferArtifacts, index int) {
+func readTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32, started time.Time, artifacts transferArtifacts, index int) {
 	t.Helper()
 	if !transferStockSQLIdentity.MatchString(lane.reg.tenantID) || !transferStockSQLIdentity.MatchString(lane.reg.agentID) {
 		t.Log("invalid stock flow fixture identity")
 		return
 	}
-	end := lane.after.started
+	from, end := lane.before.started, lane.after.started
+	if from.IsZero() {
+		// Only the diagnostic query uses the fixture clock. A missing
+		// signed bracket is still a failure for the estimate.
+		from = started
+	}
 	if end.IsZero() {
 		end = time.Now()
+	}
+	if from.IsZero() || from.After(end) {
+		t.Log("stock flow diagnostics have no bounded owned time window")
+		return
 	}
 	query := fmt.Sprintf(`SELECT routing_capture_key,clock_basis,exporter,obs_domain,src_addr,dst_addr,dst_port,
  toString(bytes) AS bytes,
@@ -143,7 +175,7 @@ func readTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transfe
  FROM probectl_flows FINAL WHERE tenant_id='%s' AND agent_id='%s' AND out_if=%d
  AND toUnixTimestamp64Nano(ts)>=%d AND toUnixTimestamp64Nano(ts)<=%d
  ORDER BY ts,routing_capture_key LIMIT 64 FORMAT JSONEachRow`, lane.reg.tenantID, lane.reg.agentID, ifIndex,
-		lane.before.started.UnixNano(), end.UnixNano())
+		from.UnixNano(), end.UnixNano())
 	body, err := shipped.CHQuery(shipped.CHURL(), query)
 	if err != nil {
 		t.Logf("read owned stock flow clocks: %v", err)
@@ -164,6 +196,7 @@ func readTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transfe
 				Ended    string
 				Retained string
 				Packets  string
+				Bytes    string
 			}
 			if err := json.Unmarshal([]byte(line), &row); err != nil {
 				return err
@@ -175,8 +208,8 @@ func readTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transfe
 					return err
 				}
 			}
-			t.Logf("stock egress row packets=%s clock_basis=%d start_ns=%s end_ns=%s receipt_ns=%s outcome=%s",
-				row.Packets, row.Basis, row.Started, row.Ended, row.Retained, outcome)
+			t.Logf("stock egress row packets=%s bytes=%s clock_basis=%d start_ns=%s end_ns=%s receipt_ns=%s outcome=%s",
+				row.Packets, row.Bytes, row.Basis, row.Started, row.Ended, row.Retained, outcome)
 			fmt.Fprintf(&ownership, "%s %s %s\n", row.Key, row.Retained, outcome)
 		}
 		return nil
