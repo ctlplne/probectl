@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -106,6 +107,30 @@ func TestSnapshotsPostgresWholeSourceValidityKeepsChargeTenantAndCurrentRead(t *
 	before = objects.reads.Load()
 	if _, err := secondReplica.Resume(t.Context(), flowsnapshot.Scope{TenantID: f.red.ID, Owner: "routing-source-owner"}, pages[f.red.ID].NextCursor, allowPostgresSnapshot); !errors.Is(err, flowsnapshot.ErrNotFound) || objects.reads.Load() != before {
 		t.Fatal("retired source receipt reached retained objects", err)
+	}
+	// Reduce the replica's metadata budget after the owner loses access to
+	// the underlying context. PostgreSQL must withhold the private receipt
+	// without disclosing the budget failure to a globally authorized reader.
+	lowBudget := flowsnapshot.New(f.pool, objects, tenancy.PooledRouter{}, tenancy.NewPostgresWriterFence(f.pool), f.validate,
+		flowsnapshot.Config{ObjectBytes: 8192, TempDir: t.TempDir()})
+	red := flowsnapshot.Scope{TenantID: f.red.ID, Owner: "routing-source-owner"}
+	before = objects.reads.Load()
+	var globalChecks int
+	authorize := func(_ context.Context, scope flowsnapshot.Scope, permissions []string) error {
+		if scope != red || !slices.Equal(permissions, []string{"ai.query", "flow.read"}) {
+			t.Fatal("unreadable snapshot changed current global authorization")
+		}
+		globalChecks++
+		return nil
+	}
+	if _, err := lowBudget.Resume(t.Context(), red, pages[red.TenantID].NextCursor, authorize); !errors.Is(err, flowsnapshot.ErrNotFound) {
+		t.Fatal("unreadable PostgreSQL metadata disclosed the revoked source via pagination", err)
+	}
+	called := false
+	walkErr := lowBudget.Walk(t.Context(), red, pages[red.TenantID].SnapshotID, authorize,
+		func(flowsnapshot.Header) error { called = true; return nil }, func([]json.RawMessage) error { called = true; return nil })
+	if !errors.Is(walkErr, flowsnapshot.ErrNotFound) || globalChecks != 2 || called || objects.reads.Load() != before {
+		t.Fatal("unreadable PostgreSQL metadata bypassed authorization or exposed data", walkErr)
 	}
 	if _, err := secondReplica.Resume(t.Context(), foreign, pages[f.blue.ID].NextCursor, allowPostgresSnapshot); err != nil {
 		t.Fatal("source receipt retirement changed its sibling tenant", err)
