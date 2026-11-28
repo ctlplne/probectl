@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/agent"
@@ -254,10 +256,6 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		result := make(chan reply, 1)
 		ownerCtx := tenancy.WithTenant(ctx, tenancy.ID(owner.tenant))
 		err := tenancy.InTenant(ownerCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-			var revokerPID int
-			if err := sc.Q.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&revokerPID); err != nil {
-				return err
-			}
 			change, err := sc.Q.Exec(ctx, `UPDATE agent_identities SET revoked_at=clock_timestamp(),revoked_by='routing-race-fixture'
  WHERE tenant_id=$1 AND serial=$2 AND revoked_at IS NULL`, owner.tenant, owner.originSerial)
 			if err != nil || change.RowsAffected() != 1 {
@@ -271,7 +269,14 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 			defer ticker.Stop()
 			for {
 				var blocked bool
-				if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))`, revokerPID).Scan(&blocked); err != nil {
+				// Read the lock manager through the revoking connection. A
+				// separate pool loan competes with the waiting mTLS writer
+				// and sibling on small CI pools.
+				if err := sc.Q.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM pg_locks held JOIN pg_locks waiter USING (transactionid)
+ WHERE held.pid=pg_backend_pid() AND held.locktype='transactionid' AND held.granted
+   AND waiter.locktype='transactionid' AND NOT waiter.granted
+ )`).Scan(&blocked); err != nil {
 					return err
 				}
 				if blocked {
@@ -296,8 +301,8 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		}
 		select {
 		case completed := <-result:
-			if completed.err == nil || len(completed.receipt.GetViews()) != 0 {
-				t.Fatal("concurrently revoked origin staged new views", completed.receipt, completed.err)
+			if status.Code(completed.err) != codes.Unavailable || len(completed.receipt.GetViews()) != 0 {
+				t.Fatal("the server did not refuse the concurrently revoked origin", completed.receipt, completed.err)
 			}
 		case <-ctx.Done():
 			t.Fatal(ctx.Err())
