@@ -13,7 +13,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"io/fs"
 	"strings"
@@ -168,7 +167,7 @@ func parseDefenseFlowRecords(ctx context.Context, raw []byte, path []string, map
 		preview.UnmappedColumns = max(preview.UnmappedColumns, len(object)-len(keys))
 	}
 	if token, err := records.Token(); err != nil || token != json.Delim(']') ||
-		records.Decode(new(any)) != io.EOF || len(preview.Prefixes) == 0 {
+		!jsonDocumentEnded(raw, records) || len(preview.Prefixes) == 0 {
 		return SightlineExportPreview{}, ErrInvalidPage
 	}
 	return preview, ctx.Err()
@@ -192,8 +191,7 @@ func defenseFlowJSONObject(raw []byte) (map[string]json.RawMessage, error) {
 		}
 		result[key] = value
 	}
-	if token, err := decoder.Token(); err != nil || token != json.Delim('}') ||
-		!errors.Is(decoder.Decode(new(any)), io.EOF) {
+	if token, err := decoder.Token(); err != nil || token != json.Delim('}') || !jsonDocumentEnded(raw, decoder) {
 		return nil, ErrInvalidPage
 	}
 	return result, nil

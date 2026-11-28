@@ -80,10 +80,16 @@ func decodePage(r io.Reader, target any) error {
 	if err := decoder.Decode(target); err != nil {
 		return ErrInvalidPage
 	}
-	if decoder.Decode(new(any)) != io.EOF {
+	if !jsonDocumentEnded(data, decoder) {
 		return ErrInvalidPage
 	}
 	return nil
+}
+
+// Reject extra input without allocating a decoded value for a second document.
+// JSON permits only these four ASCII whitespace characters at the boundary.
+func jsonDocumentEnded(data []byte, decoder *json.Decoder) bool {
+	return len(bytes.Trim(data[decoder.InputOffset():], " \t\r\n")) == 0
 }
 
 // sourceID accepts documented numeric strings or integers and canonicalizes

@@ -22,7 +22,7 @@ func TestDefenseFlowMappedConfigurationArchive(t *testing.T) {
 		path               []string
 	}{
 		{"csv", "fixture/objects.csv", "key,name,network,other\nedge-1,Example,192.0.2.0/24,discard-example\n", nil},
-		{"json", "fixture/objects.json", `{"inventory":{"entries":[{"key":"edge-1","name":"Example","network":"192.0.2.0/24","private":"discard-example"}]}}`, []string{"inventory", "entries"}},
+		{"json", "fixture/objects.json", `{"inventory":{"entries":[{"key":"edge-1","name":"Example","network":"192.0.2.0/24","private":"discard-example"}]}}` + " \n\r\t", []string{"inventory", "entries"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -74,6 +74,8 @@ func TestDefenseFlowRejectsAmbiguousArchiveInputs(t *testing.T) {
 		{"path outside the archive root", "../object.json", "../object.json", `[]`},
 		{"unselected member", "object.json", "other.json", `[]`},
 		{"foreign document shape", "object.json", "object.json", `{"sites":[]}`},
+		{"second document", "object.json", "object.json", `[{"key":"edge","name":"Example","network":"192.0.2.0/24"}] []`},
+		{"non-JSON whitespace", "object.json", "object.json", `[{"key":"edge","name":"Example","network":"192.0.2.0/24"}]` + "\u00a0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			page := defenseFlowExportPage{
