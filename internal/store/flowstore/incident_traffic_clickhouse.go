@@ -7,7 +7,9 @@
 package flowstore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
@@ -32,6 +34,27 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 	if err != nil {
 		return nil, err
 	}
+	external := []explorerExternalData{{kind: externalIncidentSources, rows: selection}}
+	retained, err := incidentTrafficRetainedKeys(ctx, query, budget.MemoryBytes/8)
+	if err != nil {
+		return nil, err
+	}
+	retainedPredicate := ""
+	if len(retained) > 0 {
+		var data bytes.Buffer
+		encoder := json.NewEncoder(&data)
+		for _, key := range query.RetainedKeys {
+			if err := encoder.Encode(struct {
+				Tenant string `json:"retained_tenant"`
+				Key    string `json:"retained_key"`
+			}{query.TenantID, key}); err != nil {
+				return nil, err
+			}
+		}
+		external = append(external, explorerExternalData{kind: externalIncidentRetainedCaptures, rows: data.Bytes()})
+		retainedPredicate = ` AND (tenant_id,routing_capture_key) GLOBAL IN
+ (SELECT retained_tenant,retained_key FROM incident_retained_lookup)`
+	}
 	target, err := c.route(ctx, query.TenantID)
 	if err != nil {
 		return nil, err
@@ -51,6 +74,12 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 	endOfWindow := "ts<{to:DateTime64(9,'UTC')}"
 	ingress := `OR (tenant_id,agent_id,exporter,protocol,obs_domain,in_if) GLOBAL IN
  (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain,impact_index FROM incident_source_lookup WHERE impact_index>0)`
+	if query.IncludeClockBasis {
+		if source.kind != "raw" {
+			return nil, incidentTrafficClockBasisError()
+		}
+		routeFields = ",toString(clock_basis) AS clock_basis"
+	}
 	if query.FailureSimulation {
 		if source.kind != "raw" {
 			return nil, incidentTrafficRawClockError()
@@ -75,23 +104,37 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 	 (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain FROM incident_source_lookup WHERE impact_index=0)
 	 ` + ingress + `
 	 OR (tenant_id,agent_id,exporter,protocol,obs_domain,out_if) GLOBAL IN
-	 (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain,impact_index FROM incident_source_lookup WHERE impact_index>0))`
+	 (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain,impact_index FROM incident_source_lookup WHERE impact_index>0))` + retainedPredicate
 	settings, err := budget.settings()
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.explorerQueryRows(ctx, target, lane, query.TenantID, sql+settings, params,
-		explorerExternalData{kind: externalIncidentSources, rows: selection})
+	rows, err := c.explorerQueryRows(ctx, target, lane, query.TenantID, sql+settings, params, external...)
 	if err != nil {
 		return nil, err
 	}
-	return decodeIncidentTrafficRows(ctx, query.TenantID, rows, budget.MemoryBytes)
+	decoded, err := decodeIncidentTrafficRows(ctx, query.TenantID, rows, budget.MemoryBytes)
+	if err != nil {
+		return nil, err
+	}
+	if retained != nil {
+		for _, row := range decoded {
+			if !retained[row.RoutingCaptureKey] {
+				return nil, errIncidentTrafficRow
+			}
+		}
+	}
+	return decoded, ctx.Err()
 }
 
 var errIncidentTrafficRow = errors.New("flowstore: incomplete incident traffic row")
 
 func incidentTrafficRawClockError() error {
 	return &PlanCoverageError{Reason: "traffic failure simulation requires original flow clocks and next hops", ResolutionSeconds: 1}
+}
+
+func incidentTrafficClockBasisError() error {
+	return &PlanCoverageError{Reason: "flow clock provenance requires retained raw records", ResolutionSeconds: 1}
 }
 
 func decodeIncidentTrafficRows(ctx context.Context, tenant string, values []map[string]any, maxBytes int64) ([]Row, error) {

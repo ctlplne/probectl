@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -35,6 +36,8 @@ func proveRoutingCaptureRowsInRealStore(t *testing.T, store *ClickHouse) {
 	for _, tenant := range tenants {
 		for i := range count {
 			row, _ := routingCaptureRowForTest(t, tenant, 0)
+			row.Sampling = 1
+			row.ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
 			row.RawFlowDigest = fmt.Sprintf("%064x", i+1)
 			body, err := hex.DecodeString(row.RawFlowDigest)
 			if err != nil {
@@ -64,6 +67,7 @@ func proveRoutingCaptureRowsInRealStore(t *testing.T, store *ClickHouse) {
 	}
 	for lane, tenant := range tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		proveRetainedIncidentTrafficKeys(t, store, rows[lane*count], rows[lane*count+1], rows[(1-lane)*count])
 		for _, series := range []string{"raw", "rollup"} {
 			refs, err := store.routingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), series, false)
 			if err != nil || len(refs) != count {

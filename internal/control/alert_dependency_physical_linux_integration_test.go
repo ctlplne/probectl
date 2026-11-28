@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -26,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testspec"
@@ -71,6 +73,24 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writer.Close() })
+	lanes := make([]*dependencyPhysicalLane, 0, len(d.f.tenants))
+	discoverers := make(map[tenancy.ID]Discoverer, len(d.f.tenants))
+	for _, tenant := range d.f.tenants {
+		network := newDependencyPhysicalNetwork(t)
+		lanes = append(lanes, &dependencyPhysicalLane{tenant: tenant, network: network})
+		discoverers[tenancy.ID(tenant)] = routedCarrierDiscoverer(t, network.source)
+	}
+	// Resolve the physical namespace using the request's authenticated tenant.
+	// Register both discoverers before serving HTTPS so requests share no
+	// mutable choice of namespace.
+	d.f.server.discover = func(ctx context.Context, cfg path.Config) (*path.Path, error) {
+		tenant, _ := tenancy.FromContext(ctx)
+		discover := discoverers[tenant]
+		if discover == nil {
+			return nil, errors.New("the carrier lab has no namespace for the authenticated tenant")
+		}
+		return discover(ctx, cfg)
+	}
 	socket := httptest.NewTLSServer(d.f.server.Handler())
 	t.Cleanup(socket.Close)
 	build := func(lane *dependencyPhysicalLane) *alert.Evaluator {
@@ -96,15 +116,17 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		evaluate(lane)
 		return measurements
 	}
-	var lanes []*dependencyPhysicalLane
-	for _, tenant := range d.f.tenants {
-		lane := &dependencyPhysicalLane{tenant: tenant, network: newDependencyPhysicalNetwork(t)}
+	for i, lane := range lanes {
+		tenant := lane.tenant
+		// The two labs reuse destination addresses. A sibling's configured
+		// test ID must be refused before it can select any physical path.
+		sibling := d.graphs[lanes[1-i].tenant].Nodes[0].TestID
+		callSeasonalAPI(t, socket, d.f.tokens[tenant], http.MethodPost, "/v1/tests/"+sibling+"/path", nil, http.StatusNotFound)
 		lane.client = transport.sender(t, d, tenant)
 		lane.definitions = dependencyPhysicalDefinitions(t, d, tenant)
 		lane.impactFrom = time.Now().UTC()
 		lane.relay, lane.mail = transport.mail(t)
 		lane.evaluator = build(lane)
-		lanes = append(lanes, lane)
 		baseline := sample(lane)
 		for i, measurement := range baseline {
 			if !measurement.Result.Success {
@@ -118,6 +140,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		if len(lane.relay.Messages()) != 0 || len(lane.evaluator.Engine().Active()) != 0 {
 			t.Fatalf("healthy physical network emitted an alert: messages=%d active=%+v baseline=%+v", len(lane.relay.Messages()), lane.evaluator.Engine().Active(), baseline)
 		}
+		claims.paths[tenant] = recordPhysicalCarrierSLAPath(t, d.f, socket, lane)
 	}
 	for laneIndex, lane := range lanes {
 		t.Logf("physical tenant lane %d", laneIndex)

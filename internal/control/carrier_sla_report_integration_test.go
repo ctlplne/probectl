@@ -38,8 +38,12 @@ import (
 // Reuses the issued-mTLS/PG app-role RLS/HTTPS fixture. Input measurements
 // are modeled; persistence, generated SDK and stored-reader controls are real.
 type carrierSLAReportProof struct{ CSV, PDF, View, Scheduled, PopulationDigest string }
+type carrierSLAReportContextWant struct {
+	roundID, flowBytes string
+	lateFlowTime       time.Time
+}
 
-func proveCarrierSLASignedReport(t *testing.T, client *sdk.Client, agreement, at, populationDigest, fingerprint string) carrierSLAReportProof {
+func proveCarrierSLASignedReport(t *testing.T, client *sdk.Client, agreement, at, populationDigest, fingerprint string, want carrierSLAReportContextWant) carrierSLAReportProof {
 	t.Helper()
 	input := sdk.DashboardCreateRequest{Name: "Signed carrier claim", Preset: "operator", Definition: sdk.DashboardDefinition{CarrierClaim: &sdk.CarrierSLAReportDefinition{Selections: []sdk.CarrierSLAReportSelection{{AgreementId: agreement, Version: "1", At: at}}}, Provenance: []string{"recorded circuit SLA"}, RedactionState: "tenant policy", CoverageLimitations: []string{"observed originals only"}}}
 	view, err := client.CreateDashboard(t.Context(), sdk.CreateDashboardRequest{Body: &input})
@@ -79,7 +83,7 @@ func proveCarrierSLASignedReport(t *testing.T, client *sdk.Client, agreement, at
 	if chunks == 0 {
 		t.Fatal("generated artifact omitted signed evidence")
 	}
-	proveCarrierSLASignedBytes(t, signed.Bytes(), agreement, populationDigest, fingerprint)
+	proveCarrierSLASignedBytes(t, signed.Bytes(), agreement, populationDigest, fingerprint, want)
 	body["format"] = "pdf"
 	pdf, err := client.GenerateDashboardReport(t.Context(), sdk.GenerateDashboardReportRequest{Body: &body})
 	if err != nil {
@@ -97,11 +101,11 @@ func proveCarrierSLASignedReport(t *testing.T, client *sdk.Client, agreement, at
 	if err != nil || length <= 0 || length > int64(pdfBody.Len()-attachment[1]) {
 		t.Fatal("served PDF attachment length is invalid", err)
 	}
-	proveCarrierSLASignedBytes(t, pdfBody.Bytes()[attachment[1]:attachment[1]+int(length)], agreement, populationDigest, fingerprint)
+	proveCarrierSLASignedBytes(t, pdfBody.Bytes()[attachment[1]:attachment[1]+int(length)], agreement, populationDigest, fingerprint, want)
 	return carrierSLAReportProof{CSV: artifact.Id, PDF: pdf.Id, View: view.Id, PopulationDigest: populationDigest}
 }
 
-func proveCarrierSLASignedBytes(t *testing.T, signed []byte, agreement, populationDigest, fingerprint string) {
+func proveCarrierSLASignedBytes(t *testing.T, signed []byte, agreement, populationDigest, fingerprint string, expected ...carrierSLAReportContextWant) {
 	t.Helper()
 	manifest, err := evidence.Verify(signed)
 	if err != nil || manifest.Profile != "carrier-sla" {
@@ -113,6 +117,34 @@ func proveCarrierSLASignedBytes(t *testing.T, signed []byte, agreement, populati
 	}
 	if !bytes.Contains(pkg.Attachments[0].Content, []byte(populationDigest)) || !bytes.Contains(pkg.Attachments[0].Content, []byte(agreement)) || !bytes.Contains(pkg.Attachments[1].Content, []byte(`"transmitted":3`)) || !bytes.Contains(pkg.Attachments[1].Content, []byte(`"round_trips"`)) {
 		t.Fatal("signed report changed recorded circuit or complete original measurements")
+	}
+	if len(expected) > 0 {
+		want := expected[0]
+		var originals struct {
+			Selections []struct {
+				EvidenceBefore time.Time                `json:"evidence_before"`
+				PathCoverage   string                   `json:"path_coverage"`
+				Rounds         []carrierSLAPathOriginal `json:"path_rounds"`
+				FlowCoverage   string                   `json:"flow_coverage"`
+				Flows          []carrierSLAFlowOriginal `json:"flow_records"`
+			} `json:"selections"`
+		}
+		if err := json.Unmarshal(pkg.Attachments[1].Content, &originals); err != nil || len(originals.Selections) != 1 ||
+			originals.Selections[0].PathCoverage != "control_plane_context" || len(originals.Selections[0].Rounds) != 1 ||
+			originals.Selections[0].Rounds[0].RoundID != want.roundID ||
+			originals.Selections[0].Rounds[0].Path.Vantage != "control_plane" {
+			t.Fatal("signed report lost the exact owned control-plane path", err)
+		}
+		selection := originals.Selections[0]
+		if want.lateFlowTime.Add(time.Millisecond).After(selection.EvidenceBefore) {
+			t.Fatal("the late flow would fall outside the signed evidence cutoff")
+		}
+		if selection.FlowCoverage != "attested_flow_context" || len(selection.Flows) != 1 || selection.Flows[0].Bytes != want.flowBytes ||
+			selection.Flows[0].Packets != "7" || selection.Flows[0].Sampling != "3" || selection.Flows[0].OriginalSourceID == "" ||
+			selection.Flows[0].InIf != 7 || selection.Flows[0].OutIf != 7 || selection.Flows[0].ClockBasis != "exporter_interval" ||
+			bytes.Contains(pkg.Attachments[1].Content, []byte("203.0.113.")) {
+			t.Fatal("signed report changed raw counters, included an unproven clock or revealed unrelated traffic")
+		}
 	}
 	file := filepath.Join(t.TempDir(), "carrier-claim.json")
 	if err := os.WriteFile(file, signed, 0600); err != nil {
@@ -127,6 +159,38 @@ func proveCarrierSLASignedBytes(t *testing.T, signed []byte, agreement, populati
 	if _, err := evidence.Verify(changed); err == nil {
 		t.Fatal("tampered stored original measurements verified")
 	}
+}
+
+func proveCarrierSLASignedWithoutFlow(t *testing.T, client *sdk.Client, proof carrierSLAReportProof, agreement, fingerprint string) string {
+	t.Helper()
+	body := map[string]any{"dashboard_id": proof.View, "format": "csv"}
+	artifact, err := client.GenerateDashboardReport(t.Context(), sdk.GenerateDashboardReportRequest{Body: &body})
+	if err != nil || artifact == nil || artifact.Id == "" {
+		t.Fatal("an unavailable flow must leave the signed claim publishable", err)
+	}
+	raw, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact.Id})
+	if err != nil {
+		t.Fatal("the signed claim without optional flow evidence was unavailable", err)
+	}
+	signed := carrierMonthWorkloadPackage(t, "csv", raw)
+	proveCarrierSLASignedBytes(t, signed, agreement, proof.PopulationDigest, fingerprint)
+	var envelope evidence.Package
+	if err := json.Unmarshal(signed, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var originals struct {
+		Selections []struct {
+			PathCoverage string            `json:"path_coverage"`
+			FlowCoverage string            `json:"flow_coverage"`
+			Flows        []json.RawMessage `json:"flow_records"`
+		} `json:"selections"`
+	}
+	if err := json.Unmarshal(envelope.Attachments[1].Content, &originals); err != nil || len(originals.Selections) != 1 ||
+		originals.Selections[0].FlowCoverage != "unavailable" || len(originals.Selections[0].Flows) != 0 ||
+		originals.Selections[0].PathCoverage != "control_plane_context" {
+		t.Fatal("the signed claim lost coverage labels or disclosed flows without authority", err)
+	}
+	return artifact.Id
 }
 
 // Exercise the shipping report backend under each supported wire revision and
@@ -257,7 +321,7 @@ func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFix
 		if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
 			return err
 		}
-		ctx = auth.WithPrincipal(ctx, actor)
+		ctx = store.WithReportSourceAuditLock(auth.WithPrincipal(ctx, actor), sc)
 		if err := f.server.validateReportSourcePublication(ctx, sc, actor, captured); err == nil {
 			t.Fatal("a stale captured financial head acquired new publication authority")
 		}

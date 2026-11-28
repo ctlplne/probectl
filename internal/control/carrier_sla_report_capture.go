@@ -123,7 +123,10 @@ func (s *Server) captureCarrierSLAReport(ctx context.Context, actor *auth.Princi
 		if err != nil {
 			return nil, err
 		}
-		requirements = append(requirements, carrierSLAReportRequirement{value.agreement.ID, value.agreement.Version, value.agreement.CurrentVersion, digest, period, tests})
+		requirements = append(requirements, carrierSLAReportRequirement{
+			AgreementID: value.agreement.ID, Version: value.agreement.Version, CurrentVersion: value.agreement.CurrentVersion,
+			DefinitionDigest: digest, Period: period, Tests: tests,
+		})
 	}
 	if err := validateCarrierSLAReportRequirements(ctx, actor.TenantID, requirements, budget.MemoryBytes/4); err != nil {
 		return nil, err
@@ -134,6 +137,9 @@ func (s *Server) captureCarrierSLAReport(ctx context.Context, actor *auth.Princi
 		return nil, err
 	}
 	defer originals.Close()
+	if err := validateCarrierSLAReportRequirements(ctx, actor.TenantID, requirements, budget.MemoryBytes/4); err != nil {
+		return nil, err
+	}
 	phase = "public financial projection"
 	public, err := s.publicCarrierSLAClaim(ctx, actor.TenantID, draft, budget.MemoryBytes/16)
 	if err != nil {
@@ -219,12 +225,18 @@ func (s *Server) stageCarrierSLAReportOriginals(ctx context.Context, op capacity
 				return err
 			}
 			count := int64(0)
+			paths := []carrierSLAPathOriginal{}
+			flows := []carrierSLAFlowOriginal{}
+			evidenceBefore := statement.Period.To.UTC()
+			if statement.AsOf.Before(evidenceBefore) {
+				evidenceBefore = statement.AsOf.UTC()
+			}
 			err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 				if err := s.revalidateCarrierSLAClaimInScope(ctx, sc, op, value); err != nil {
 					return err
 				}
 				limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: op.budget.MemoryBytes / 16, ReadBytes: op.budget.ReadBytes, ReadRows: int64(op.budget.ReadRows), ChargeRead: op.chargeRead}
-				return store.NewEntityRegistry(s.pool).WalkConfiguredTestMeasurementsInScope(ctx, sc, value.sources, statement.Period.From, statement.Period.To, limits, func(item store.IncidentTestMeasurement) error {
+				err := store.NewEntityRegistry(s.pool).WalkConfiguredTestMeasurementsInScope(ctx, sc, value.sources, statement.Period.From, statement.Period.To, limits, func(item store.IncidentTestMeasurement) error {
 					if err := accumulator.observe(ctx, item); err != nil {
 						return err
 					}
@@ -236,6 +248,38 @@ func (s *Server) stageCarrierSLAReportOriginals(ctx context.Context, op capacity
 					count++
 					return originalWriter.write(ctx, target, item, op.budget.MemoryBytes/64)
 				})
+				if err != nil {
+					return err
+				}
+				if !evidenceBefore.After(statement.Period.From) {
+					return nil
+				}
+				requirement := &requirements[index]
+				requirement.EvidenceBefore = &evidenceBefore
+				current, err := readCurrentUserAuthorityScope(ctx, sc, op.actor.UserID)
+				if err != nil {
+					return err
+				}
+				ctx, principal, err := current.requestContext(ctx, op.actor)
+				if err != nil {
+					return err
+				}
+				paths, err = s.captureCarrierSLAPathOriginals(ctx, sc, principal, value.agreement, value.sources, requirement, op.budget.MemoryBytes/16, op.chargeRead)
+				if err != nil {
+					return err
+				}
+				candidate, err := s.carrierSLAFlowOriginals(ctx, sc, principal, value.agreement.Definition.Target, requirement.evidencePeriod(), nil, op.budget, op.chargeRead)
+				if err != nil && !carrierSLAFlowUnavailable(err) {
+					return err
+				}
+				if err == nil {
+					flows = candidate
+				}
+				requirement.Flows, err = carrierSLAFlowRequirements(flows)
+				if err != nil {
+					return err
+				}
+				return op.chargeRetained((int64(len(requirement.Paths)) + int64(len(requirement.Flows))) * 256)
 			})
 			if err != nil {
 				return err
@@ -248,7 +292,28 @@ func (s *Server) stageCarrierSLAReportOriginals(ctx context.Context, op capacity
 			if !reflect.DeepEqual(credit, statement.Credit) || !reflect.DeepEqual(populations, statement.Sources) {
 				return apierror.Conflict("complete SLA originals changed while signing; retry")
 			}
-			if _, err := io.WriteString(target, "]}"); err != nil {
+			pathCoverage := "unavailable"
+			if len(paths) > 0 {
+				pathCoverage = "control_plane_context"
+			}
+			flowCoverage := "unavailable"
+			if len(flows) > 0 {
+				flowCoverage = "attested_flow_context"
+			}
+			contextBody, err := json.Marshal(struct {
+				EvidenceBefore time.Time                `json:"evidence_before"`
+				PathCoverage   string                   `json:"path_coverage"`
+				Rounds         []carrierSLAPathOriginal `json:"path_rounds"`
+				FlowCoverage   string                   `json:"flow_coverage"`
+				Flows          []carrierSLAFlowOriginal `json:"flow_records"`
+			}{evidenceBefore, pathCoverage, paths, flowCoverage, flows})
+			if err != nil {
+				return err
+			}
+			if _, err := io.WriteString(target, "],"); err != nil {
+				return err
+			}
+			if _, err := target.Write(contextBody[1:]); err != nil {
 				return err
 			}
 		}

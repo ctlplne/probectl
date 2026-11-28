@@ -39,6 +39,7 @@ import (
 
 type routerChangeProbe struct {
 	agent, test, serial string
+	process             string
 }
 
 type routerProbeEnrollment struct {
@@ -92,6 +93,7 @@ evidence:
 		t.Fatal(err)
 	}
 	st.StartProcess(t, name, st.Agent, []string{"-config", file}, []string{"PROBECTL_AGENT_METRICS_ADDR=127.0.0.1:0"})
+	enrolled.process = name
 	return enrolled.routerChangeProbe
 }
 

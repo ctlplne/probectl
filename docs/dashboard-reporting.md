@@ -480,6 +480,30 @@ availability is not continuous uptime, and the observed failure-to-next-success
 interval is not physical repair time. Human review and carrier adjudication are
 required; saving, signing and scheduling do not submit a claim.
 
+The signed originals also carry stored control-plane path rounds from
+configured tests on devices belonging to the selected circuit. Each round
+must have been started by that exact test. Rounds without a recorded test
+remain available in path history. The included rounds
+provide path context for the probe and do not affect credit. The artifact
+records unavailable path context explicitly. Download requires the captured
+rounds and current circuit and test permissions to remain available.
+
+When the reader has current flow access to the selected circuit, the signed
+originals can include raw flow counters backed by authenticated exporter
+captures. Each observation carries its capture identity, interval, clock basis,
+interface indices, observed bytes, observed packets and sampling factor. Only
+observations with a known clock and a complete interval inside the evidence
+window are included. The signed projection omits
+endpoint addresses. This coverage is recorded separately from path coverage
+and leaves credit unchanged. A raw read that exceeds its configured budget
+reports flow context as unavailable. Download requires the original flows
+and their current circuit and exporter authority. A normal exporter refresh
+preserves the original source identity in the archive. A monthly draft uses the
+earlier of its calculation time and the billing period end as the upper bound
+for these observations. A later draft can include newly retained observations.
+An existing signed report keeps the capture identities it recorded when
+generated.
+
 The CSV evidence table transfers the complete signed envelope in ordered
 base64 chunks. Decode `signed_package_base64_chunk` cells in `ordinal` order,
 check their common package identity, declared chunk count and complete byte

@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/fairness"
-	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
@@ -110,9 +109,9 @@ func proveCarrierSLAPortableBindings(t *testing.T, f *roleExplanationAPIFixture,
 // application-instance recovery, not a release-image/process restart.
 func proveCarrierSLAFreshInstance(t *testing.T, f *roleExplanationAPIFixture, proofs map[string]carrierSLAReportProof, agreements map[string]string, fingerprint string) {
 	t.Helper()
-	server := New(f.server.cfg, f.server.log, f.server.pinger, f.pool, nil, nil).
+	server := New(f.server.cfg, f.server.log, f.server.pinger, f.pool, f.server.pathStore, nil).
 		WithTenantStatus(NewTenantStatusCache(f.pool, 0)).
-		WithFlowStore(flowstore.NewMemory()).
+		WithFlowStore(f.server.flowStore).
 		WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil)).
 		WithEvidenceSigningKey(f.server.evidenceSigningKey)
 	socket := httptest.NewTLSServer(server.Handler())

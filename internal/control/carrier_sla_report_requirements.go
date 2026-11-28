@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"time"
 
@@ -31,6 +32,17 @@ type carrierSLAReportRequirement struct {
 	DefinitionDigest string                        `json:"definition_digest"`
 	Period           flow.CapacityBillingPeriod    `json:"period"`
 	Tests            []store.ReportTestRequirement `json:"tests"`
+	EvidenceBefore   *time.Time                    `json:"evidence_before,omitempty"`
+	Paths            []carrierSLAPathRequirement   `json:"paths,omitempty"`
+	Flows            []carrierSLAFlowRequirement   `json:"flows,omitempty"`
+}
+
+func (r carrierSLAReportRequirement) evidencePeriod() flow.CapacityBillingPeriod {
+	period := r.Period
+	if r.EvidenceBefore != nil {
+		period.To = *r.EvidenceBefore
+	}
+	return period
 }
 
 func carrierSLAReportDefinitionDigest(definition flow.CapacityAgreementDefinition) (string, error) {
@@ -70,8 +82,56 @@ func validateCarrierSLAReportRequirements(ctx context.Context, tenant string, va
 			}
 			tests[key] = true
 		}
+		memory, err = validateCarrierSLAEvidenceRequirements(value, memory)
+		if err != nil {
+			return err
+		}
 	}
 	return ctx.Err()
+}
+
+func validateCarrierSLAEvidenceRequirements(value carrierSLAReportRequirement, memory int64) (int64, error) {
+	if value.EvidenceBefore == nil {
+		if len(value.Paths) > 0 || len(value.Flows) > 0 {
+			return 0, errReportSourceRequirements
+		}
+		return memory, nil
+	}
+	if !value.EvidenceBefore.After(value.Period.From) || value.EvidenceBefore.After(value.Period.To) || int64(len(value.Flows)) > memory/1024 {
+		return 0, errReportSourceRequirements
+	}
+	memory -= int64(len(value.Flows)) * 1024
+	last := ""
+	for _, record := range value.Flows {
+		if !canonicalFlowRoutingDigest(record.Key) || !canonicalFlowRoutingDigest(record.Digest) || record.Key <= last {
+			return 0, errReportSourceRequirements
+		}
+		last = record.Key
+	}
+	if len(value.Paths) == 0 {
+		return memory, nil
+	}
+	if int64(len(value.Paths)) > memory/1024 {
+		return 0, errReportSourceRequirements
+	}
+	memory -= int64(len(value.Paths)) * 1024
+	pathTests := make(map[[2]string]bool, len(value.Tests))
+	for _, test := range value.Tests {
+		pathTests[[2]string{test.TestID, test.AgentID}] = true
+	}
+	pathIDs := make(map[[3]string]bool, len(value.Paths))
+	for _, round := range value.Paths {
+		key := [3]string{round.TestID, round.AgentID, round.RoundID}
+		if len(round.RoundID) != 32 || !pathTests[[2]string{round.TestID, round.AgentID}] || pathIDs[key] {
+			return 0, errReportSourceRequirements
+		}
+		roundID, err := hex.DecodeString(round.RoundID)
+		if err != nil || hex.EncodeToString(roundID) != round.RoundID || !canonicalFlowRoutingDigest(round.Digest) {
+			return 0, errReportSourceRequirements
+		}
+		pathIDs[key] = true
+	}
+	return memory, nil
 }
 
 func (s *Server) revalidateCarrierSLAReportScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, tenant string, values []carrierSLAReportRequirement, publishing bool) error {
@@ -146,12 +206,43 @@ func (s *Server) revalidateCarrierSLAReportScope(ctx context.Context, sc tenancy
 		for _, test := range value.Tests {
 			selected = append(selected, store.IncidentConfiguredTest{TenantID: tenant, ContextID: test.ContextID, EntityID: test.EntityID, TestID: test.TestID, AgentID: test.AgentID, SourceGeneration: test.SourceGeneration})
 		}
-		if _, err := registry.CarrierSLAConfiguredTestsInScope(ctx, sc, value.AgreementID, value.Version, selected, budget.MemoryBytes/8, authorize); err != nil {
+		sources, err := registry.CarrierSLAConfiguredTestsInScope(ctx, sc, value.AgreementID, value.Version, selected, budget.MemoryBytes/8, authorize)
+		if err != nil {
 			return err
 		}
 		if err := registry.RecheckClientReportTestRequirementsInScope(ctx, sc, value.Tests, budget.MemoryBytes/8, authorize); err != nil {
 			return err
 		}
+		if err := s.revalidateCarrierSLAPaths(ctx, sc, principal, agreement, sources, value, budget.MemoryBytes/16); err != nil {
+			return err
+		}
+		if len(value.Flows) > 0 {
+			if err := s.revalidateCarrierSLAFlows(ctx, sc, principal, agreement.Definition.Target, value, budget, publishing); err != nil {
+				return err
+			}
+		}
+	}
+	return ctx.Err()
+}
+
+func (s *Server) revalidateCarrierSLAFlows(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, target flow.CapacityTarget, value carrierSLAReportRequirement, budget flowstore.ExplorerBudget, publishing bool) error {
+	if publishing {
+		ctx = store.WithReportSourceAuditLock(ctx, sc)
+	}
+	keys := make([]string, 0, len(value.Flows))
+	for _, record := range value.Flows {
+		keys = append(keys, record.Key)
+	}
+	records, err := s.carrierSLAFlowOriginals(ctx, sc, actor, target, value.evidencePeriod(), keys, budget, nil)
+	if err != nil {
+		return err
+	}
+	current, err := carrierSLAFlowRequirements(records)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(current, value.Flows) {
+		return errReportSourceRequirements
 	}
 	return ctx.Err()
 }

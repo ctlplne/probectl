@@ -17,13 +17,64 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+func TestCarrierSLAFlowClockRequiresTheCompleteObservedInterval(t *testing.T) {
+	from := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour + 500*time.Microsecond)
+	period := flow.CapacityBillingPeriod{From: from, To: to}
+	const exporter = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
+	const collector = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE
+	for _, tc := range []struct {
+		name, protocol string
+		start, end     time.Time
+		basis          flowv1.FlowClockBasis
+		want           string
+	}{
+		{"whole exporter interval", flow.ProtoIPFIX, from, from.Add(time.Minute), exporter, "exporter_interval"},
+		{"began before period", flow.ProtoIPFIX, from.Add(-time.Millisecond), from.Add(time.Minute), exporter, ""},
+		{"end bucket crosses cutoff", flow.ProtoIPFIX, from, to.Truncate(time.Millisecond), exporter, ""},
+		{"whole end bucket", flow.ProtoIPFIX, from, to.Truncate(time.Millisecond).Add(-time.Millisecond), exporter, "exporter_interval"},
+		{"unknown clock", flow.ProtoIPFIX, from, from.Add(time.Minute), 0, ""},
+		{"whole collector sample", flow.ProtoSFlow5, from, from, collector, "collector_sample"},
+		{"wrong protocol for clock", flow.ProtoSFlow5, from, from.Add(time.Minute), exporter, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := flowstore.Row{Protocol: tc.protocol, StartTS: tc.start, TS: tc.end, ClockBasis: tc.basis}
+			if got := carrierSLAFlowClockBasis(row, period); got != tc.want {
+				t.Fatalf("admitted clock %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCarrierSLAOptionalFlowBudgetPreservesFailClosedErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err         error
+		unavailable bool
+	}{
+		{flowstore.ErrExplorerBudget, true},
+		{store.ErrBGPRoutingBudget, true},
+		{entity.ErrInterfaceRoleBudget, true},
+		{store.ErrClientReportBudget, true},
+		{entity.ErrScopeMismatch, false},
+		{entity.ErrInvalidClaim, false},
+		{context.Canceled, false},
+		{context.DeadlineExceeded, false},
+	} {
+		if got := carrierSLAFlowUnavailable(tc.err); got != tc.unavailable {
+			t.Errorf("classify %v as unavailable = %t, want %t", tc.err, got, tc.unavailable)
+		}
+	}
+}
 
 func TestCarrierSLAReportTemplatesRequireExplicitFinancialSlotsAndExactRevisions(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
@@ -82,6 +133,17 @@ func TestCarrierSLAReportRequirementsKeepTwoTenantBoundariesAndNoStoredGrant(t *
 		foreign.Tests[0].TenantID = other
 		if err := validateCarrierSLAReportRequirements(ctx, tenant, []carrierSLAReportRequirement{foreign}, 8<<20); err == nil {
 			t.Fatal("nested foreign test requirements accepted")
+		}
+		evidence := value
+		cutoff := from.Add(time.Minute)
+		evidence.EvidenceBefore = &cutoff
+		evidence.Paths = []carrierSLAPathRequirement{{TestID: value.Tests[0].TestID, AgentID: value.Tests[0].AgentID, RoundID: strings.Repeat("a", 32), Digest: strings.Repeat("b", 64)}}
+		if err := validateCarrierSLAReportRequirements(ctx, tenant, []carrierSLAReportRequirement{evidence}, 8<<20); err != nil {
+			t.Fatal("owned bounded path requirement was refused", err)
+		}
+		evidence.Paths[0].RoundID = strings.Repeat("a", 4096)
+		if err := validateCarrierSLAReportRequirements(ctx, tenant, []carrierSLAReportRequirement{evidence}, 8<<20); err == nil {
+			t.Fatal("oversized round identifier accepted")
 		}
 		capture.Monthly = &clientReportSourceRequirements{}
 		if _, err := marshalReportSourceRequirements(ctx, capture, 8<<20); err == nil {

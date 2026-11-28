@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -28,6 +29,7 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/fairness"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -35,14 +37,33 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+const (
+	incidentImpactFlowAgent    = "impact-flow"
+	incidentImpactFlowExporter = "192.0.2.1"
+)
+
+func recordIncidentImpactFlowExporter(t *testing.T, f *roleExplanationAPIFixture, tenant string) {
+	t.Helper()
+	claim := entity.Observation{ID: gouuid.NewString(),
+		Source:    entity.SourceKey{AgentID: incidentImpactFlowAgent, Kind: entity.FlowExporter, SourceRef: incidentImpactFlowExporter},
+		Alias:     entity.AliasKey{Kind: entity.FlowExporterAlias, Value: incidentImpactFlowExporter + "/ipfix/4294967295"},
+		SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: f.observedAt(tenant)}
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	accepted, unresolved, err := writeEntityEvidenceBatchForTest(ctx, store.NewEntityRegistry(f.pool), incidentImpactFlowAgent,
+		f.serials[tenant+incidentImpactFlowAgent], []entity.Observation{claim})
+	if err != nil || accepted != 1 || unresolved != 0 {
+		t.Fatal("impact source observation was not accepted", accepted, unresolved, err)
+	}
+}
+
 func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]string) {
 	t.Helper()
 	return seedIncidentImpactWindows(t, false)
 }
 
-func seedIncidentImpactWindows(t *testing.T, includePrevious bool) (*roleExplanationAPIFixture, map[string]string) {
+func seedIncidentImpactWindows(t *testing.T, includePrevious bool, logs ...*slog.Logger) (*roleExplanationAPIFixture, map[string]string) {
 	t.Helper()
-	f := newRoleExplanationAPIFixture(t)
+	f := newRoleExplanationAPIFixture(t, logs...)
 	key, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
@@ -51,8 +72,8 @@ func seedIncidentImpactWindows(t *testing.T, includePrevious bool) (*roleExplana
 	flows := flowstore.NewMemory()
 	f.server.WithFlowStore(flows).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	incidents := map[string]string{}
-	const agent = "impact-flow"
-	const exporter = "192.0.2.1"
+	const agent = incidentImpactFlowAgent
+	const exporter = incidentImpactFlowExporter
 	windows := []int{0}
 	if includePrevious {
 		windows = append(windows, 1)
@@ -64,6 +85,7 @@ func seedIncidentImpactWindows(t *testing.T, includePrevious bool) (*roleExplana
 		if err := store.NewAgentIdentities(f.pool).Record(t.Context(), tenant, agent, crypto.EntitySPIFFEID(tenant, agent), serial, time.Now().Add(time.Hour), ""); err != nil {
 			t.Fatal(err)
 		}
+		f.serials[tenant+agent] = serial
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, permission := range []string{"incident.read", "flow.read", "tags.read", "ai.query"} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
@@ -100,29 +122,42 @@ func seedIncidentImpactWindows(t *testing.T, includePrevious bool) (*roleExplana
 			_, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_assignments(tenant_id,context_id,id,tag_id,target_kind,entity_kind,entity_id,value,source) VALUES($1,$2,$3,$4,'prefix','prefix',$5,$6,'manual')`, tenant, f.contextID, gouuid.NewString(), tag, prefix, "customer-"+tenant)
 			return err
 		})
-		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: exporter}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: exporter + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: f.observedAt(tenant)}
-		accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), store.NewEntityRegistry(f.pool), agent, serial, []entity.Observation{claim})
-		if err != nil || accepted != 1 || unresolved != 0 {
-			t.Fatal("impact source observation was not accepted", accepted, unresolved, err)
-		}
+		recordIncidentImpactFlowExporter(t, f, tenant)
 		for _, weeksAgo := range windows {
-			var raw [32]byte
-			copy(raw[:], crypto.Hash([]byte("modeled authenticated impact observation "+tenant+" "+strconv.Itoa(weeksAgo))))
-			ref, err := store.NewBGPRoutingFlowCaptures(f.pool).CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, raw,
-				store.BGPRoutingFlowInput{Exporter: netip.MustParseAddr(exporter), Source: netip.MustParseAddr("203.0.113.1"), Destination: netip.MustParseAddr("203.0.113.2"), Protocol: "ipfix", Domain: ^uint32(0)}, store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 128 << 20})
-			if err != nil {
-				t.Fatal(err)
-			}
 			// The modeled exporter clock can describe retained traffic from last
 			// week. Receipt clocks and identity bindings still come from Postgres.
-			observed := ref.CapturedAt.Add(-time.Duration(weeksAgo) * 7 * 24 * time.Hour)
-			if err := flows.Insert(t.Context(), []flowstore.Row{{TenantID: tenant, AgentID: agent, Exporter: exporter, Protocol: "ipfix", ObsDomain: ^uint32(0), TS: observed, StartTS: observed,
-				SrcAddr: "203.0.113.1", DstAddr: "203.0.113.2", DstPort: uint16(443 + lane), InIf: 7, OutIf: 7, Bytes: uint64(100 + lane - 30*weeksAgo), Packets: 7, Sampling: 3, RawFlowDigest: hex.EncodeToString(raw[:]), RoutingCaptureKey: hex.EncodeToString(ref.Key[:]), RoutingCapturedUnixNanos: ref.CapturedAt.UnixNano()}}); err != nil {
-				t.Fatal(err)
+			var observed time.Time
+			if weeksAgo > 0 {
+				observed = f.observedAt(tenant).Add(-time.Duration(weeksAgo) * 7 * 24 * time.Hour)
 			}
+			recordModeledIncidentImpactFlow(t, f, tenant, 7, uint16(443+lane), uint64(100+lane-30*weeksAgo), observed,
+				flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL)
 		}
 	}
 	return f, incidents
+}
+
+func recordModeledIncidentImpactFlow(t *testing.T, f *roleExplanationAPIFixture, tenant string, ifIndex uint32, port uint16, observedBytes uint64, observed time.Time, clockBasis flowv1.FlowClockBasis) {
+	t.Helper()
+	const source, destination = "203.0.113.1", "203.0.113.2"
+	var raw [32]byte
+	copy(raw[:], crypto.Hash([]byte("modeled authenticated impact observation "+gouuid.NewString())))
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	ref, err := store.NewBGPRoutingFlowCaptures(f.pool).CaptureAuthenticated(ctx, incidentImpactFlowAgent, raw,
+		store.BGPRoutingFlowInput{Exporter: netip.MustParseAddr(incidentImpactFlowExporter), Source: netip.MustParseAddr(source), Destination: netip.MustParseAddr(destination), Protocol: "ipfix", Domain: ^uint32(0)},
+		store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 128 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.IsZero() {
+		observed = ref.CapturedAt
+	}
+	row := flowstore.Row{TenantID: tenant, AgentID: incidentImpactFlowAgent, Exporter: incidentImpactFlowExporter, Protocol: "ipfix", ObsDomain: ^uint32(0), TS: observed, StartTS: observed, ClockBasis: clockBasis,
+		SrcAddr: source, DstAddr: destination, DstPort: port, InIf: ifIndex, OutIf: ifIndex, Bytes: observedBytes, Packets: 7, Sampling: 3,
+		RawFlowDigest: hex.EncodeToString(raw[:]), RoutingCaptureKey: hex.EncodeToString(ref.Key[:]), RoutingCapturedUnixNanos: ref.CapturedAt.UnixNano()}
+	if err := f.server.flowStore.Insert(ctx, []flowstore.Row{row}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing.T) {

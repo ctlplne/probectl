@@ -9,6 +9,7 @@ package flowstore
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"net/netip"
 	"sort"
@@ -34,6 +35,12 @@ type IncidentTrafficQuery struct {
 	From, To time.Time
 	Series   string
 	Sources  []IncidentTrafficSource
+	// RetainedKeys optionally narrows a raw read to previously captured
+	// originals. It never adds a source or skips the tenant predicate.
+	RetainedKeys []string
+	// IncludeClockBasis requests the provenance of each raw observation's
+	// clock while retaining normal ingress and egress selection.
+	IncludeClockBasis bool
 	// FailureSimulation reads original clocks and next hops on the selected
 	// egress. A nonzero span may end exactly at the observation boundary.
 	FailureSimulation bool
@@ -127,6 +134,30 @@ type incidentTrafficSelector struct {
 	Index    uint32 `json:"impact_index"`
 }
 
+func incidentTrafficRetainedKeys(ctx context.Context, query IncidentTrafficQuery, memory int64) (map[string]bool, error) {
+	if len(query.RetainedKeys) == 0 {
+		return nil, nil
+	}
+	if query.Series != "raw" || int64(len(query.RetainedKeys)) > memory/256 {
+		return nil, ErrExplorerBudget
+	}
+	keys := make(map[string]bool, len(query.RetainedKeys))
+	for _, key := range query.RetainedKeys {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(key) != 64 || keys[key] {
+			return nil, errIncidentTrafficRow
+		}
+		decoded, err := hex.DecodeString(key)
+		if err != nil || hex.EncodeToString(decoded) != key {
+			return nil, errIncidentTrafficRow
+		}
+		keys[key] = true
+	}
+	return keys, ctx.Err()
+}
+
 func incidentTrafficSelectors(ctx context.Context, query IncidentTrafficQuery, maxBytes int64) ([]incidentTrafficSelector, []byte, error) {
 	if len(query.Sources) == 0 || maxBytes <= 0 || int64(len(query.Sources)) > maxBytes/1024 {
 		return nil, nil, ErrExplorerBudget
@@ -216,11 +247,18 @@ func (m *Memory) incidentTrafficRows(ctx context.Context, query IncidentTrafficQ
 	if query.FailureSimulation && plan.DataSeries == "rollup" {
 		return nil, incidentTrafficRawClockError()
 	}
+	if query.IncludeClockBasis && plan.DataSeries == "rollup" {
+		return nil, incidentTrafficClockBasisError()
+	}
 	budget, err := explorerPlanBudget(ctx, m, query.TenantID, m)
 	if err != nil {
 		return nil, err
 	}
 	selectors, _, err := incidentTrafficSelectors(ctx, query, budget.MemoryBytes/8)
+	if err != nil {
+		return nil, err
+	}
+	retained, err := incidentTrafficRetainedKeys(ctx, query, budget.MemoryBytes/8)
 	if err != nil {
 		return nil, err
 	}
@@ -238,11 +276,17 @@ func (m *Memory) incidentTrafficRows(ctx context.Context, query IncidentTrafficQ
 		if row.TenantID != query.TenantID || row.TS.Before(plan.From) || !endsWithin || !incidentTrafficMatches(row, membership, query.FailureSimulation) {
 			continue
 		}
+		if retained != nil && !retained[row.RoutingCaptureKey] {
+			continue
+		}
 		if row.Sampling == 0 || row.StartTS.After(row.TS) || validateRoutingCaptureRow(row) != nil {
 			return nil, errIncidentTrafficRow
 		}
 		if !query.FailureSimulation {
-			row.ClockBasis, row.NextHop = 0, ""
+			row.NextHop = ""
+			if !query.IncludeClockBasis {
+				row.ClockBasis = 0
+			}
 		}
 		cost := int64(1024 + len(row.AgentID) + len(row.Exporter) + len(row.SrcAddr) + len(row.DstAddr) + len(row.Protocol) + len(row.NextHop))
 		if len(out) >= budget.ReadRows || cost > min(budget.MemoryBytes, budget.ReadBytes)-used {

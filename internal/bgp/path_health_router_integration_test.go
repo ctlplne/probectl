@@ -52,14 +52,7 @@ type routerPathHealth struct {
 func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, first, second edgeFlowRegistration, agents []string, target, primary, community string, replay func(*testing.T, time.Time)) {
 	t.Helper()
 	from := time.Now().UTC().Add(-time.Second)
-	// Own one exact host route through the router, rather than the Docker
-	// bridge's direct connected route to the destination. Preserve other routes.
-	route := target + "/32"
-	if out, err := exec.Command("ip", "route", "show", "exact", route).Output(); err != nil || len(strings.TrimSpace(string(out))) != 0 {
-		t.Fatal("owned path destination already has a host route", err)
-	}
-	pathLabPrivileged(t, "ip", "route", "add", route, "via", primary)
-	t.Cleanup(func() { pathLabPrivileged(t, "ip", "route", "del", route, "via", primary) })
+	installRouterLabHostRoute(t, target, primary)
 
 	registrations := []edgeFlowRegistration{first, second}
 	tests := make([]string, len(registrations))
@@ -215,6 +208,18 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			verifyRouterPathOriginals(t, body, reg, originals[lane])
 		}
 	})
+}
+
+func installRouterLabHostRoute(t *testing.T, target, router string) {
+	t.Helper()
+	// Own one exact host route through the router, rather than the Docker
+	// bridge's direct connected route to the destination. Preserve other routes.
+	route := target + "/32"
+	if out, err := exec.Command("ip", "route", "show", "exact", route).Output(); err != nil || len(strings.TrimSpace(string(out))) != 0 {
+		t.Fatal("owned path destination already has a host route", err)
+	}
+	pathLabPrivileged(t, "ip", "route", "add", route, "via", router)
+	t.Cleanup(func() { pathLabPrivileged(t, "ip", "route", "del", route, "via", router) })
 }
 
 func pathLabPrivileged(t *testing.T, program string, args ...string) {

@@ -57,8 +57,8 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 }
 
 // The caller owns fresh lifecycle, writer-fence and configuration checks.
-// This scoped recipient check never acquires a connection or renders/fetches
-// source telemetry; it is not a publication or persistent access grant.
+// This recipient check uses the caller's PostgreSQL scope to verify current
+// access. Carrier claims also recheck exact retained path and flow originals.
 func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, capture *reportFlowCapture) error {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || sc.Q == nil || bound != sc.Tenant || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID {

@@ -11,6 +11,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -32,7 +33,11 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
+	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testspec"
 	"github.com/ctlplne/probectl/pkg/sdk"
@@ -44,7 +49,7 @@ import (
 // physical month or a legally payable claim.
 func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *testing.T) {
 	var diagnostics bytes.Buffer
-	f := newRoleExplanationAPIFixture(t, slog.New(slog.NewTextHandler(&diagnostics, nil)))
+	f, _ := seedIncidentImpactWindows(t, false, slog.New(slog.NewTextHandler(&diagnostics, nil)))
 	defer func() {
 		if t.Failed() {
 			t.Log(diagnostics.String())
@@ -52,6 +57,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 	}()
 	f.server.cfg.FlowQueryLibraryBytes = 256 << 20
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	f.server.pathStore = pathstore.NewMemory()
 	key, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +77,12 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 	proofs := map[string]carrierSLAReportProof{}
 	agents := map[string]string{}
 	tests := map[string]string{}
+	rounds := map[string]string{}
 	for lane, tenant := range f.tenants {
+		// The same authorized exporter sees a separate port in the same
+		// tenant. Its original counters must stay outside the claim.
+		recordModeledIncidentImpactFlow(t, f, tenant, 8, 443, uint64(900+lane), time.Time{}, flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL)
+		recordModeledIncidentImpactFlow(t, f, tenant, 7, 443, uint64(800+lane), time.Time{}, flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED)
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, permission := range []string{permFlowAgreementsRead, permFlowAgreementsWrite, permTestRead, "entities.read", "metrics.read", permMetricsWrite} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
@@ -99,6 +110,16 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		if n, unresolved, err := client.Submit(t.Context(), []entity.Observation{claim}); err != nil || n != 1 || unresolved != 0 {
 			t.Fatal("owned original receipt refused", n, unresolved, err)
 		}
+		pathCtx, roundID, err := pathstore.NewDiscoveryRound(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pathCtx = pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(pathCtx, at), m.CompletedAt)
+		pathCtx = pathstore.WithDiscoveryTest(pathCtx, definition.ID)
+		if err := f.server.pathStore.Save(pathCtx, tenant, &path.Path{Target: definition.Target, TargetIP: definition.Target, Vantage: path.VantageControlPlane}); err != nil {
+			t.Fatal(err)
+		}
+		rounds[tenant] = roundID
 		terms := flow.CapacityAgreementDefinition{Name: "SLA circuit", Reference: "operator contract", ValidFrom: from.Format(time.RFC3339Nano), Target: flow.CapacityTarget{Kind: "interface", ContextID: f.contextID, InterfaceID: f.interfaceID}, BillingDay: 1, Timezone: "UTC", Direction: "in", Currency: "USD", CommitBPS: "0", UnitBPS: "1", UnitPrice: "0", SLA: &flow.CarrierSLATerms{Carrier: "operator carrier", CircuitID: "operator circuit", Currency: "USD", MonthlyCharge: "100.125", CreditCapRatio: "1.25", Aggregation: "maximum", Sources: []flow.CarrierSLASource{{AgentID: agent, TestID: definition.ID}}, Rules: []flow.CarrierSLARule{{ID: "loss", Metric: "loss", Basis: "original_packet_ratio", GoodWhen: "at_most", Threshold: "0.01", CreditBands: []flow.CarrierSLACreditBand{{From: "0.01", CreditRatio: "0.1"}}}}}}
 		repository := flow.NewPostgresCapacityAgreements(f.pool, 1<<30, 8<<20, 8<<20, audit.TenantRecord)
 		item, err := repository.SaveCapacityAgreement(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.users[tenant], flow.SaveCapacityAgreement{Definition: terms})
@@ -136,6 +157,8 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			return nil
 		})
 	}
+	a, b := f.tenants[0], f.tenants[1]
+	lateFlowTime := f.observedAt(a).Truncate(time.Millisecond).Add(time.Millisecond)
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	caFile := filepath.Join(t.TempDir(), "served-ca.pem")
@@ -163,7 +186,8 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		if code != 0 || json.Unmarshal(stdout.Bytes(), &cliResult) != nil || len(cliResult.Sources) != 1 || cliResult.Sources[0].Digest != p.Digest {
 			t.Fatal("CLI lost complete original population", code, stderr.String())
 		}
-		proofs[tenant] = proveCarrierSLASignedReport(t, client, ids[tenant], input.At, p.Digest, fingerprint)
+		proofs[tenant] = proveCarrierSLASignedReport(t, client, ids[tenant], input.At, p.Digest, fingerprint,
+			carrierSLAReportContextWant{roundID: rounds[tenant], flowBytes: strconv.Itoa(100 + lane), lateFlowTime: lateFlowTime})
 		reports[tenant] = proofs[tenant].CSV
 		proveReportRevokedCredential(t, f, tenant, reports[tenant])
 		otherReportClient := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[f.tenants[1-lane]]))
@@ -202,6 +226,11 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		proofs[tenant] = proof
 	}
 	proveCarrierSLAPortableBindings(t, f, socket, proofs, ids)
+	// Start retaining a backdated flow in the same circuit only after the
+	// original artifacts exist. The observation fits their evidence windows.
+	const lateFlowBytes = 700
+	recordModeledIncidentImpactFlow(t, f, a, 7, 443, lateFlowBytes, lateFlowTime, flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL)
+	recordIncidentImpactFlowExporter(t, f, a)
 	proveCarrierSLAFreshInstance(t, f, proofs, ids, fingerprint)
 	nativeReports.crossTenant()
 	call := interfaceRoleNativeTLSCaller(t, f, "2025-11-25")
@@ -217,7 +246,51 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			t.Fatal("native grouping dropped a circuit or promoted unknown credit")
 		}
 	}
-	a, b := f.tenants[0], f.tenants[1]
+	downloadPair := func(firstAllowed bool, phase string) {
+		t.Helper()
+		for _, tenant := range []string{a, b} {
+			allowed := tenant == b || firstAllowed
+			client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+			for _, artifact := range []string{proofs[tenant].CSV, proofs[tenant].PDF} {
+				body, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact})
+				if allowed && (err != nil || len(body) == 0) || !allowed && (err == nil || len(body) != 0) {
+					t.Fatal("stored signed report did not follow the current tenant's flow authority", phase, err)
+				}
+			}
+		}
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permFlowRead)
+		return err
+	})
+	downloadPair(false, "flow grant withdrawn")
+	withoutFlow := proveCarrierSLASignedWithoutFlow(t, sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[a])),
+		proofs[a], ids[a], fingerprint)
+	sibling := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[b]))
+	if raw, err := sibling.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: withoutFlow}); err == nil || len(raw) != 0 {
+		t.Fatal("the report without flow context crossed the tenant boundary", err)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.Roles{}).AddPermission(ctx, sc, f.roles[a], permFlowRead)
+	})
+	downloadPair(true, "flow grant restored")
+	flowCtx := tenancy.WithTenant(t.Context(), tenancy.ID(a))
+	if err := f.server.flowStore.DeleteTenantBefore(flowCtx, a, lateFlowTime); err != nil {
+		t.Fatal("remove the first tenant's original flow", err)
+	}
+	var remaining bytes.Buffer
+	count, err := f.server.flowStore.ExportTenant(flowCtx, a, &remaining)
+	var replacement flowstore.Row
+	if err != nil || count != 1 || json.Unmarshal(remaining.Bytes(), &replacement) != nil ||
+		replacement.TenantID != a || replacement.Bytes != lateFlowBytes || replacement.RoutingCaptureKey == "" {
+		t.Fatal("retention must leave the unrelated late capture available", count, err)
+	}
+	retained, err := flowstore.ReadTimedFlowCaptureReferences(flowCtx, f.server.flowStore, a, lateFlowTime, lateFlowTime.Add(time.Millisecond), "raw")
+	if err != nil || len(retained) != 1 || hex.EncodeToString(retained[0].Ref.Key[:]) != replacement.RoutingCaptureKey ||
+		!retained[0].Timing.End.Equal(lateFlowTime) || retained[0].Timing.Basis != flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL {
+		t.Fatal("the retained replacement lost its original capture time or identity", len(retained), err)
+	}
+	downloadPair(false, "original raw flow removed, late capture still retained")
 	func() {
 		request := httptest.NewRequest(http.MethodPost, "/v1/flows/capacity/sla-claims", nil)
 		request.Header.Set("Authorization", "Bearer "+f.tokens[a])

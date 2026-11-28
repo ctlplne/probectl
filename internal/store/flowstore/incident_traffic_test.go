@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -83,5 +84,48 @@ func TestIncidentTrafficDecodesDestinationPortAndRejectsIncompleteRows(t *testin
 		if _, err := decodeIncidentTrafficRow("owned", value); !errors.Is(err, errIncidentTrafficRow) {
 			t.Fatal("invalid stored port was interpreted as a valid observation", port, err)
 		}
+	}
+}
+
+func TestRetainedIncidentTrafficKeysCannotExpandSourceOrTenant(t *testing.T) {
+	st := NewMemory()
+	var owned [2][]Row
+	for lane, tenant := range []string{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"} {
+		rows, _ := routingReferencePopulation(t, tenant, 2)
+		for i := range rows {
+			rows[i].Sampling = 1
+			rows[i].ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
+		}
+		owned[lane] = rows
+		if err := st.Insert(t.Context(), rows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for lane, rows := range owned {
+		proveRetainedIncidentTrafficKeys(t, st, rows[0], rows[1], owned[1-lane][0])
+	}
+}
+
+func proveRetainedIncidentTrafficKeys(t *testing.T, backend Store, selected, unselected, sibling Row) {
+	t.Helper()
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(selected.TenantID))
+	batch, err := NewPlanBatch(ctx, backend, selected.TenantID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer batch.Close()
+	query := IncidentTrafficQuery{TenantID: selected.TenantID, From: selected.TS.Add(-time.Second), To: selected.TS.Add(time.Second), Series: "raw",
+		RetainedKeys: []string{selected.RoutingCaptureKey, sibling.RoutingCaptureKey}, IncludeClockBasis: true,
+		Sources: []IncidentTrafficSource{{AgentID: selected.AgentID, Exporter: netip.MustParseAddr(selected.Exporter), Protocol: selected.Protocol, Domain: selected.ObsDomain, WholeDevice: true}}}
+	rows, err := batch.IncidentTrafficRows(query)
+	if err != nil || len(rows) != 1 || rows[0].TenantID != selected.TenantID || rows[0].RoutingCaptureKey != selected.RoutingCaptureKey || rows[0].RoutingCaptureKey == unselected.RoutingCaptureKey {
+		t.Fatal("exact capture read added an unselected key or sibling tenant", rows, err)
+	}
+	if rows[0].ClockBasis != selected.ClockBasis || rows[0].ClockBasis == 0 || rows[0].NextHop != "" {
+		t.Fatal("exact capture read changed clock provenance or exposed a next hop")
+	}
+	query.Sources[0].Domain ^= 1
+	if rows, err := batch.IncidentTrafficRows(query); err != nil || len(rows) != 0 {
+		t.Fatal("exact capture read expanded the selected source", rows, err)
 	}
 }

@@ -16,6 +16,7 @@ ROOT = "TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride"
 PACKAGE = "github.com/ctlplne/probectl/internal/bgp"
 CONTROL_ROOT = ROOT + "/signed-directional-control"
 BOUNDARY_ROOT = CONTROL_ROOT + "/live-boundary-and-monitoring"
+SLA_FLOW_ROOT = CONTROL_ROOT + "/signed-carrier-sla-flow"
 COMPLIANCE = (
     CONTROL_ROOT,
     BOUNDARY_ROOT,
@@ -72,7 +73,7 @@ def main():
         result.stdout,
         result.returncode,
         package=PACKAGE,
-        tests=(ROOT, *COMPLIANCE, *SURFACES, *PATH_HEALTH, *CHANGE_EFFECTS,
+        tests=(ROOT, SLA_FLOW_ROOT, *COMPLIANCE, *SURFACES, *PATH_HEALTH, *CHANGE_EFFECTS,
                *(ROOT + "/stdio/" + wire for wire in ("2026-07-28", "2025-11-25"))),
     )
     if errors:

@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -29,13 +30,16 @@ import (
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
 type physicalCarrierSLAProof struct {
 	agreements  map[string]string
+	paths       map[string]pathstore.Snapshot
 	fingerprint string
 }
 
@@ -46,17 +50,18 @@ func prepareCarrierSLAPhysical(t *testing.T, d *dependencyRoutingFixture) physic
 	f := d.f
 	f.server.cfg.FlowQueryLibraryBytes = 256 << 20
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	f.server.pathStore = pathstore.NewMemory()
 	private, public, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.server.evidenceSigningKey = private
-	proof := physicalCarrierSLAProof{agreements: map[string]string{}, fingerprint: "sha256:" + hex.EncodeToString(crypto.Hash(public))}
+	proof := physicalCarrierSLAProof{agreements: map[string]string{}, paths: map[string]pathstore.Snapshot{}, fingerprint: "sha256:" + hex.EncodeToString(crypto.Hash(public))}
 	now := time.Now().UTC()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	for _, tenant := range f.tenants {
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permFlowAgreementsRead, permFlowAgreementsWrite, permTestRead, "entities.read", "metrics.read", permMetricsWrite} {
+			for _, permission := range []string{permFlowAgreementsRead, permFlowAgreementsWrite, permTestRead, permTestWrite, "entities.read", "metrics.read", permMetricsWrite} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
@@ -77,6 +82,26 @@ func prepareCarrierSLAPhysical(t *testing.T, d *dependencyRoutingFixture) physic
 		proof.agreements[tenant] = item.ID
 	}
 	return proof
+}
+
+func recordPhysicalCarrierSLAPath(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, lane *dependencyPhysicalLane) pathstore.Snapshot {
+	t.Helper()
+	test := lane.definitions[0]
+	from := f.observedAt(lane.tenant)
+	body := callSeasonalAPI(t, socket, f.tokens[lane.tenant], http.MethodPost, "/v1/tests/"+test.ID+"/path", nil, http.StatusOK)
+	var observed path.Path
+	if err := json.Unmarshal(body, &observed); err != nil || observed.TargetIP != test.Target || !observed.DestinationReached ||
+		observed.Vantage != path.VantageControlPlane || observed.MeasurementFidelity == nil || observed.MeasurementFidelity.AcquisitionMode != "raw_icmp" {
+		t.Fatal("physical SLA path did not reach the owned routed interface", err)
+	}
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(lane.tenant))
+	rows, err := f.server.pathStore.History(ctx, lane.tenant, test.Target, pathstore.HistoryQuery{
+		From: from, To: f.observedAt(lane.tenant), TestID: test.ID, MaxBytes: 8 << 20,
+	})
+	if err != nil || len(rows) != 1 || rows[0].ID == "" || !rows[0].TrustedDiscoveryTime || rows[0].CompletedAt == nil {
+		t.Fatal("the physical discovery did not retain one original round under the tenant", err)
+	}
+	return rows[0]
 }
 
 func proveCarrierSLAPhysical(t *testing.T, d *dependencyRoutingFixture, socket *httptest.Server, lanes []*dependencyPhysicalLane, proof physicalCarrierSLAProof) {
@@ -117,7 +142,7 @@ func proveCarrierSLAPhysical(t *testing.T, d *dependencyRoutingFixture, socket *
 			t.Fatal(err)
 		}
 		signed := physicalCarrierCSVPackage(t, downloaded.Bytes())
-		checkPhysicalCarrierOriginals(t, signed, lane, proof.fingerprint)
+		checkPhysicalCarrierOriginals(t, signed, lane, proof.paths[lane.tenant], proof.fingerprint)
 		foreign := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(d.f.tokens[lanes[1-index].tenant]))
 		if body, err := foreign.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact.Id}); err == nil || len(body) > 0 {
 			t.Fatal("physical signed claim crossed storage tenant")
@@ -168,7 +193,7 @@ type physicalCarrierOriginal struct {
 	} `json:"icmp"`
 }
 
-func checkPhysicalCarrierOriginals(t *testing.T, raw []byte, lane *dependencyPhysicalLane, fingerprint string) {
+func checkPhysicalCarrierOriginals(t *testing.T, raw []byte, lane *dependencyPhysicalLane, recordedPath pathstore.Snapshot, fingerprint string) {
 	t.Helper()
 	manifest, err := evidence.Verify(raw)
 	if err != nil || manifest.Profile != "carrier-sla" {
@@ -181,10 +206,23 @@ func checkPhysicalCarrierOriginals(t *testing.T, raw []byte, lane *dependencyPhy
 	var originals struct {
 		Selections []struct {
 			Measurements []physicalCarrierOriginal `json:"measurements"`
+			PathCoverage string                    `json:"path_coverage"`
+			Paths        []carrierSLAPathOriginal  `json:"path_rounds"`
 		} `json:"selections"`
 	}
 	if err := json.Unmarshal(pkg.Attachments[1].Content, &originals); err != nil || len(originals.Selections) != 1 || len(originals.Selections[0].Measurements) != len(lane.measured) {
 		t.Fatal("signed package lost actual original observations", err)
+	}
+	selection := originals.Selections[0]
+	if recordedPath.CompletedAt == nil || selection.PathCoverage != "control_plane_context" || len(selection.Paths) != 1 {
+		t.Fatal("signed package did not retain the actual circuit path")
+	}
+	trace := selection.Paths[0]
+	if trace.TestID != lane.definitions[0].ID || trace.RoundID != recordedPath.ID ||
+		!trace.StartedAt.Equal(recordedPath.ObservedAt) || !trace.CompletedAt.Equal(*recordedPath.CompletedAt) ||
+		trace.Path.Vantage != path.VantageControlPlane || !trace.Path.DestinationReached ||
+		trace.Path.MeasurementFidelity == nil || trace.Path.MeasurementFidelity.AcquisitionMode != "raw_icmp" {
+		t.Fatal("signed path changed the original observation or substituted a different circuit")
 	}
 	expected := map[string]*dependencyPhysicalMeasurement{}
 	for i := range lane.measured {
@@ -218,5 +256,17 @@ func checkPhysicalCarrierOriginals(t *testing.T, raw []byte, lane *dependencyPhy
 	code := cli.RunWithStdin([]string{"incident", "verify", file, "--trusted-key-fingerprint", fingerprint}, func(string) string { return "" }, nil, &output, &errors)
 	if code != 0 || !bytes.Contains(output.Bytes(), []byte("VERIFIED probectl-evidence/v1")) {
 		t.Fatal("actual offline CLI did not verify physical claim", code, errors.String())
+	}
+	originalAttachment := pkg.Attachments[1].Content
+	pkg.Attachments[1].Content = bytes.Replace(originalAttachment, []byte(trace.RoundID), []byte("00000000000000000000000000000000"), 1)
+	if bytes.Equal(pkg.Attachments[1].Content, originalAttachment) {
+		t.Fatal("could not plant a changed physical path round in the signed claim")
+	}
+	tampered, err := json.Marshal(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := evidence.Verify(tampered); err == nil {
+		t.Fatal("the offline verifier accepted a changed path round in the physical claim")
 	}
 }

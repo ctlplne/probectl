@@ -246,6 +246,9 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 		emitRoleRouterDualStackTraffic(t, lab, exporter, link)
 		awaitRoleRouterFlow(t, st, paired, []roleRouterLink{link}, pairedAt.Add(-time.Minute))
 		proveRealFlowComplianceReports(t, st, reg, paired, link, [2]string{ids[link.index], otherIDs[link.index]}, pin)
+		t.Run("signed-carrier-sla-flow", func(t *testing.T) {
+			proveStockCarrierSLAFlow(t, st, lab, reg, paired, links[2], primary, siblingDestination, image, pin)
+		})
 	})
 	// Revoke only the primary tenant's actual issued source credential. The
 	// identical physical addresses in the sibling tenant retain their authority.
