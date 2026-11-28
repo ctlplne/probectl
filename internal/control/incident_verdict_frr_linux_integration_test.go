@@ -90,13 +90,15 @@ func dropVerdictCarrierTraffic(t *testing.T, provider string) {
 	// provider can keep sending keepalives until its own hold timer expires
 	// and the monitored router receives the provider's original NOTIFICATION.
 	filter := [...]string{"netns", "exec", provider, "tc", "filter", "add", "dev", "to-router", "ingress", "protocol", "ip"}
-	dependencyLabCommand(t, "ip", append(filter[:], "pref", "10", "flower", "ip_proto", "icmp", "action", "drop")...)
+	dependencyLabCommand(t, "ip", append(filter[:], "pref", "10", "u32",
+		"match", "ip", "protocol", "1", "0xff", "action", "drop")...)
 	// Bytes 2-3 of the IPv4 header give the packet's total length.
 	dependencyLabCommand(t, "ip", append(filter[:], "pref", "20", "u32",
 		"match", "ip", "protocol", "6", "0xff", "match", "ip", "src", verdictFRRLocalIP+"/32", "match", "ip", "dst", verdictFRRCarrierIP+"/32",
 		"match", "u16", "0x0028", "0xffff", "at", "2", "action", "pass")...)
-	dependencyLabCommand(t, "ip", append(filter[:], "pref", "30", "flower", "ip_proto", "tcp",
-		"src_ip", verdictFRRLocalIP, "dst_ip", verdictFRRCarrierIP, "action", "drop")...)
+	dependencyLabCommand(t, "ip", append(filter[:], "pref", "30", "u32",
+		"match", "ip", "protocol", "6", "0xff", "match", "ip", "src", verdictFRRLocalIP+"/32", "match", "ip", "dst", verdictFRRCarrierIP+"/32",
+		"action", "drop")...)
 }
 
 func verdictFRRLinkStates(t *testing.T, network dependencyPhysicalNetwork) [2]entity.SNMPInterfaceState {
